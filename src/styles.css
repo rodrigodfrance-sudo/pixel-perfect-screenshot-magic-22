@@ -72,9 +72,54 @@
 }
 
 :root {
+  color-scheme: light;
   --radius: 0.25rem;
   --font-sans: "IBM Plex Sans", system-ui, sans-serif;
   --font-mono: "JetBrains Mono", ui-monospace, monospace;
+  --background: oklch(0.985 0.003 250);
+  --foreground: oklch(0.18 0.015 250);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.18 0.015 250);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.18 0.015 250);
+  --primary: oklch(0.55 0.17 65);
+  --primary-foreground: oklch(0.99 0 0);
+  --secondary: oklch(0.94 0.008 250);
+  --secondary-foreground: oklch(0.2 0.015 250);
+  --muted: oklch(0.94 0.006 250);
+  --muted-foreground: oklch(0.46 0.015 250);
+  --accent: oklch(0.92 0.01 250);
+  --accent-foreground: oklch(0.18 0.015 250);
+  --destructive: oklch(0.58 0.22 25);
+  --destructive-foreground: oklch(0.99 0 0);
+  --border: oklch(0.88 0.008 250);
+  --input: oklch(0.88 0.008 250);
+  --ring: oklch(0.55 0.17 65);
+  --canvas: oklch(0.92 0.006 250);
+  --trim: oklch(0.52 0.18 220);
+  --bleed: oklch(0.58 0.24 350);
+  --safe: oklch(0.50 0.18 145);
+  --marks: oklch(0.15 0 0);
+  --ok: oklch(0.50 0.18 145);
+  --warn: oklch(0.58 0.18 75);
+  --review: oklch(0.52 0.18 45);
+  --chart-1: oklch(0.646 0.222 41.116);
+  --chart-2: oklch(0.6 0.118 184.704);
+  --chart-3: oklch(0.398 0.07 227.392);
+  --chart-4: oklch(0.828 0.189 84.429);
+  --chart-5: oklch(0.769 0.188 70.08);
+  --sidebar: oklch(0.965 0.004 250);
+  --sidebar-foreground: oklch(0.18 0.015 250);
+  --sidebar-primary: oklch(0.55 0.17 65);
+  --sidebar-primary-foreground: oklch(0.99 0 0);
+  --sidebar-accent: oklch(0.92 0.01 250);
+  --sidebar-accent-foreground: oklch(0.18 0.015 250);
+  --sidebar-border: oklch(0.88 0.008 250);
+  --sidebar-ring: oklch(0.55 0.17 65);
+}
+
+.dark {
+  color-scheme: dark;
   --background: oklch(0.17 0.008 250);
   --foreground: oklch(0.93 0.005 250);
   --card: oklch(0.21 0.01 250);
@@ -129,7 +174,10 @@
   }
   .checker {
     background-color: var(--canvas);
-    background-image: radial-gradient(oklch(1 0 0 / 6%) 1px, transparent 1px);
+    background-image: radial-gradient(oklch(0 0 0 / 7%) 1px, transparent 1px);
     background-size: 14px 14px;
+  }
+  .dark .checker {
+    background-image: radial-gradient(oklch(1 0 0 / 6%) 1px, transparent 1px);
   }
 }

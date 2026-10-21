@@ -7,6 +7,7 @@ import {
 } from "@/lib/bleed/engine";
 import { openPdf, renderPage, sampleEdges, validateVisual, type PdfDoc, type VisualCheck } from "@/lib/bleed/render";
 import { detectKind, statusOf, type FileKind, type Status } from "@/lib/bleed/status";
+import { ThemeToggle } from "@/components/ThemeToggle";
 
 interface PageCfg { bleed: Bleed; method: Method; trim: Box; skip: boolean; sampleOffset: SampleOffset }
 interface Output {
@@ -188,8 +189,20 @@ export default function BleedStudio() {
           <span className="font-mono text-xs tracking-widest text-primary">PRÉ-IMPRESSÃO</span>
           <h1 className="text-lg font-semibold">Gerador Inteligente de Sangria</h1>
         </div>
-        <div className="flex items-center gap-2 font-mono text-xs text-muted-foreground">
-          {busy && (<><span className="animate-pulse text-primary">●</span>{busy}<button className="ml-2 rounded border border-border px-2 py-0.5 hover:bg-accent" onClick={() => (cancelRef.current = true)}>cancelar</button></>)}
+        <div className="flex items-center gap-3 font-mono text-xs text-muted-foreground">
+          {busy && (
+            <>
+              <span className="animate-pulse text-primary">●</span>
+              {busy}
+              <button
+                className="ml-2 rounded border border-border px-2 py-0.5 hover:bg-accent"
+                onClick={() => (cancelRef.current = true)}
+              >
+                cancelar
+              </button>
+            </>
+          )}
+          <ThemeToggle />
         </div>
       </header>
 
