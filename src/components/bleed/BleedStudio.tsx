@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { PDFDocument } from "pdf-lib";
 import {
   analyzePdf, buildBleedPdf, defaultTrim, hasEnoughBleed, imageToPdf, ptToMm, mmToPt, uniformBleed,
-  validateGeometry, cropMarkLines, sideLabel, SIDES,
+  validateGeometry, validateTrim, cropMarkLines, sideLabel, SIDES,
   type Bleed, type Box, type Method, type PageAnalysis, type PageJob, type PageResult, type Side,
 } from "@/lib/bleed/engine";
 import { openPdf, renderPage, sampleEdges, validateVisual, type PdfDoc, type VisualCheck } from "@/lib/bleed/render";
@@ -56,11 +56,20 @@ export default function BleedStudio() {
 
   const item = items.find((i) => i.id === activeId) ?? null;
   const cfg = item?.cfg[pageIdx];
+  const trimProblems = item
+    ? item.cfg.flatMap((c, i) => {
+        const media = item.analyses[i]?.media;
+        const msg = !c.skip && media ? validateTrim(c.trim, media) : null;
+        return msg ? [`Pág. ${i + 1}: ${msg}`] : [];
+      })
+    : [];
   const update = (id: string, fn: (i: Item) => Item) => setItems((xs) => xs.map((x) => (x.id === id ? fn(x) : x)));
 
   // ---------- importação ----------
   const onFiles = async (files: FileList | File[]) => {
     const errs: string[] = [];
+    // DPI é validado aqui (e não no onChange) para o campo poder ser apagado e redigitado sem saltos.
+    const useDpi = Math.min(1200, Math.max(72, Number.isFinite(dpi) ? dpi : 300));
     for (const f of Array.from(files)) {
       try {
         if (f.size > MAX_MB * 1024 * 1024) throw new Error(`excede o limite de ${MAX_MB} MB`);
@@ -71,9 +80,9 @@ export default function BleedStudio() {
         const warnings: string[] = [];
         let src = raw;
         if (kind === "png" || kind === "jpg") {
-          src = await imageToPdf(raw, kind, dpi);
-          warnings.push(`Imagem convertida para PDF a ${dpi} DPI.`);
-          if (dpi < 250) warnings.push("Resolução abaixo de 250 DPI: qualidade de impressão pode ser insuficiente.");
+          src = await imageToPdf(raw, kind, useDpi);
+          warnings.push(`Imagem convertida para PDF a ${useDpi} DPI.`);
+          if (useDpi < 250) warnings.push("Resolução abaixo de 250 DPI: qualidade de impressão pode ser insuficiente.");
         }
         const analyses = await analyzePdf(src);
         if (analyses.length > MAX_PAGES) throw new Error(`mais de ${MAX_PAGES} páginas`);
@@ -92,13 +101,14 @@ export default function BleedStudio() {
   };
 
   // ---------- configuração com desfazer/refazer ----------
-  const setCfg = (fn: (c: PageCfg, i: number) => PageCfg) => {
+  // `onlyCurrent`: a linha de corte é sempre por página — nunca replicar em "Todas as páginas".
+  const setCfg = (fn: (c: PageCfg, i: number) => PageCfg, onlyCurrent = false) => {
     if (!item) return;
     update(item.id, (it) => ({
       ...it,
       past: [...it.past.slice(-50), it.cfg],
       future: [],
-      cfg: it.cfg.map((c, i) => (scope === "all" || i === pageIdx ? fn(c, i) : c)),
+      cfg: it.cfg.map((c, i) => ((scope === "all" && !onlyCurrent) || i === pageIdx ? fn(c, i) : c)),
       output: it.output ? { ...it.output, stale: true } : undefined,
       approved: false,
     }));
@@ -116,6 +126,7 @@ export default function BleedStudio() {
   const process = async () => {
     if (!item) return;
     cancelRef.current = false;
+    const cfgAtStart = item.cfg; // se a configuração mudar durante o processamento, o resultado já nasce desatualizado
     try {
       const srcDoc = await openPdf(item.src);
       const jobs: PageJob[] = [];
@@ -134,7 +145,7 @@ export default function BleedStudio() {
       const visual = await validateVisual(bytes, results, jobs);
       const notes = results.flatMap((r) => r.notes);
       const status = statusOf(geo.issues, visual, [...notes, ...item.warnings, ...item.analyses.flatMap((a) => a.warnings)]);
-      update(item.id, (it) => ({ ...it, approved: false, output: { bytes, results, jobs, issues: geo.issues, visual, status, stale: false } }));
+      update(item.id, (it) => ({ ...it, approved: false, output: { bytes, results, jobs, issues: geo.issues, visual, status, stale: it.cfg !== cfgAtStart } }));
     } catch (e) {
       setErrors([`Falha no processamento: ${(e as Error).message}`]);
     }
@@ -187,7 +198,7 @@ export default function BleedStudio() {
             DPI para PNG/JPG
             <input type="number" min={72} max={1200} value={dpi} onChange={(e) => setDpi(+e.target.value || 300)} className="w-20 rounded border border-input bg-background px-2 py-1 font-mono text-foreground" />
           </label>
-          {errors.map((e) => <p key={e} className="rounded border border-destructive/50 bg-destructive/10 p-2 text-xs text-destructive">{e}</p>)}
+          {errors.map((e, i) => <p key={`${i}-${e}`} className="rounded border border-destructive/50 bg-destructive/10 p-2 text-xs text-destructive">{e}</p>)}
           <ul className="space-y-1">
             {items.map((it) => (
               <li key={it.id}>
@@ -259,10 +270,11 @@ export default function BleedStudio() {
                 <div className="grid grid-cols-2 gap-2">
                   {(["x", "y", "w", "h"] as const).map((k) => (
                     <label key={k} className="text-xs text-muted-foreground">{({ x: "origem X", y: "origem Y", w: "largura final", h: "altura final" })[k]}
-                      <input type="number" step={0.1} value={+ptToMm(cfg.trim[k]).toFixed(2)} onChange={(e) => setCfg((c) => ({ ...c, skip: false, trim: { ...c.trim, [k]: mmToPt(+e.target.value || 0) } }))} className="mt-1 w-full rounded border border-input bg-background px-2 py-1 font-mono text-foreground" />
+                      <input type="number" step={0.1} value={+ptToMm(cfg.trim[k]).toFixed(2)} onChange={(e) => setCfg((c) => ({ ...c, skip: false, trim: { ...c.trim, [k]: mmToPt(+e.target.value || 0) } }), true)} className="mt-1 w-full rounded border border-input bg-background px-2 py-1 font-mono text-foreground" />
                     </label>
                   ))}
                 </div>
+                {trimProblems.map((m) => <p key={m} className="mt-2 text-[11px] text-destructive">{m}</p>)}
               </Section>
               <Section title="Opções">
                 <Toggle checked={cropMarks} onChange={(v) => { setCropMarks(v); item.output && update(item.id, (it) => ({ ...it, output: it.output && { ...it.output, stale: true } })); }} label="Marcas de corte" />
@@ -274,7 +286,7 @@ export default function BleedStudio() {
                 <button onClick={redo} disabled={!item.future.length} className="flex-1 rounded border border-border py-1.5 hover:bg-accent disabled:opacity-40">↷ Refazer</button>
                 <button onClick={restore} className="flex-1 rounded border border-border py-1.5 hover:bg-accent">Restaurar</button>
               </div>
-              <button onClick={process} disabled={!!busy} className="w-full rounded bg-primary py-2.5 font-semibold text-primary-foreground transition hover:brightness-110 disabled:opacity-50">
+              <button onClick={process} disabled={!!busy || trimProblems.length > 0} className="w-full rounded bg-primary py-2.5 font-semibold text-primary-foreground transition hover:brightness-110 disabled:opacity-50">
                 {item.output ? "Reprocessar sangria" : "Gerar sangria"}
               </button>
 
@@ -319,7 +331,8 @@ function Results({ item, onApprove, onPage, onReport }: { item: Item; onApprove:
 function Preview({ item, pageIdx, cropMarks }: { item: Item; pageIdx: number; cropMarks: boolean }) {
   const [view, setView] = useState<"after" | "before">("after");
   const [zoom, setZoom] = useState(1);
-  const [img, setImg] = useState<{ url: string; w: number; h: number; toPx: (x: number, y: number) => [number, number] } | null>(null);
+  const [img, setImg] = useState<{ url: string; w: number; h: number; scale: number; toPx: (x: number, y: number) => [number, number] } | null>(null);
+  const [err, setErr] = useState<string | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const drag = useRef<{ x: number; y: number; l: number; t: number } | null>(null);
   const out = item.output && !item.output.stale ? item.output : null;
@@ -328,14 +341,24 @@ function Preview({ item, pageIdx, cropMarks }: { item: Item; pageIdx: number; cr
 
   useEffect(() => {
     let alive = true; let doc: PdfDoc | null = null;
+    setErr(null);
     (async () => {
-      doc = await openPdf(bytes);
-      const r = await renderPage(doc, pageIdx, 2);
+      const d = await openPdf(bytes);
+      if (!alive) { void d.destroy(); return; } // o efeito já foi desmontado: não vazar o documento
+      doc = d;
+      const r = await renderPage(d, pageIdx, 2);
       if (!alive) return;
-      setImg({ url: r.canvas.toDataURL(), w: r.canvas.width, h: r.canvas.height, toPx: r.toPx });
-    })().catch(() => {});
-    return () => { alive = false; doc?.destroy(); };
+      setImg({ url: r.canvas.toDataURL(), w: r.canvas.width, h: r.canvas.height, scale: r.scale, toPx: r.toPx });
+    })().catch((e) => { if (alive) setErr(`Não foi possível renderizar a página: ${(e as Error).message}`); });
+    return () => { alive = false; void doc?.destroy(); };
   }, [bytes, pageIdx]);
+
+  const fit = () => {
+    const el = scrollRef.current;
+    if (!el || !img) return;
+    const pw = img.w / img.scale, ph = img.h / img.scale;
+    setZoom(Math.min(8, Math.max(0.25, Math.min((el.clientWidth - 80) / pw, (el.clientHeight - 80) / ph))));
+  };
 
   const res = out?.results[pageIdx];
   const cfg = item.cfg[pageIdx];
@@ -359,7 +382,8 @@ function Preview({ item, pageIdx, cropMarks }: { item: Item; pageIdx: number; cr
           <button onClick={() => setZoom((z) => Math.max(0.25, z / 1.25))} className="rounded border border-border px-2 hover:bg-accent">−</button>
           <span className="w-12 text-center">{Math.round(zoom * 100)}%</span>
           <button onClick={() => setZoom((z) => Math.min(8, z * 1.25))} className="rounded border border-border px-2 hover:bg-accent">+</button>
-          <button onClick={() => setZoom(1)} className="rounded border border-border px-2 hover:bg-accent">ajustar</button>
+          <button onClick={() => setZoom(1)} className="rounded border border-border px-2 hover:bg-accent">100%</button>
+          <button onClick={fit} disabled={!img} className="rounded border border-border px-2 hover:bg-accent disabled:opacity-40">ajustar</button>
         </div>
         <div className="ml-auto flex flex-wrap gap-3 text-muted-foreground">
           <Legend c="bg-trim" l="Linha de corte" /><Legend c="bg-bleed" l="Área de sangria" /><Legend c="bg-safe" l="Segurança 3 mm" />{cropMarks && <Legend c="bg-marks" l="Marcas de corte" />}
@@ -373,9 +397,10 @@ function Preview({ item, pageIdx, cropMarks }: { item: Item; pageIdx: number; cr
         onMouseMove={(e) => { const d = drag.current; if (!d) return; const el = scrollRef.current!; el.scrollLeft = d.l - (e.clientX - d.x); el.scrollTop = d.t - (e.clientY - d.y); }}
         onMouseUp={() => (drag.current = null)} onMouseLeave={() => (drag.current = null)}
       >
+        {err && <p className="m-4 rounded border border-destructive/50 bg-destructive/10 p-2 text-xs text-destructive">{err}</p>}
         {img && (
           <div className="p-10" style={{ width: "max-content" }}>
-            <div className="relative shadow-2xl" style={{ width: (img.w / 2) * zoom, height: (img.h / 2) * zoom }}>
+            <div className="relative shadow-2xl" style={{ width: (img.w / img.scale) * zoom, height: (img.h / img.scale) * zoom }}>
               <img src={img.url} alt={`Página ${pageIdx + 1}`} className="absolute inset-0 h-full w-full select-none" draggable={false} />
               <svg viewBox={`0 0 ${img.w} ${img.h}`} className="pointer-events-none absolute inset-0 h-full w-full">
                 {showAfter && res && !res.skipped && (
@@ -404,7 +429,7 @@ function Preview({ item, pageIdx, cropMarks }: { item: Item; pageIdx: number; cr
   );
 }
 
-function DropZone({ onFiles }: { onFiles: (f: FileList) => void }) {
+function DropZone({ onFiles }: { onFiles: (f: FileList | File[]) => void }) {
   const [over, setOver] = useState(false);
   const input = useRef<HTMLInputElement>(null);
   return (
@@ -413,11 +438,13 @@ function DropZone({ onFiles }: { onFiles: (f: FileList) => void }) {
       onDragLeave={() => setOver(false)}
       onDrop={(e) => { e.preventDefault(); setOver(false); onFiles(e.dataTransfer.files); }}
       onClick={() => input.current?.click()}
+      onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); input.current?.click(); } }}
+      role="button" tabIndex={0} aria-label="Selecionar arquivos PDF, PNG ou JPG"
       className={`cursor-pointer rounded border-2 border-dashed p-5 text-center text-xs transition-colors ${over ? "border-primary bg-primary/10" : "border-border hover:border-primary/60"}`}
     >
       <div className="font-medium text-foreground">Arraste arquivos aqui</div>
       <div className="mt-1 text-muted-foreground">ou clique para selecionar · PDF, PNG, JPG</div>
-      <input ref={input} type="file" multiple accept=".pdf,.png,.jpg,.jpeg,application/pdf,image/png,image/jpeg" className="hidden" onChange={(e) => e.target.files && onFiles(e.target.files)} />
+      <input ref={input} type="file" multiple accept=".pdf,.png,.jpg,.jpeg,application/pdf,image/png,image/jpeg" className="hidden" onChange={(e) => { if (e.target.files) onFiles(Array.from(e.target.files)); e.target.value = ""; }} />
     </div>
   );
 }

@@ -18,15 +18,23 @@ export interface Rendered {
   toPx: (x: number, y: number) => [number, number];
 }
 
-export async function renderPage(doc: PdfDoc, index: number, scale: number, useMedia = false): Promise<Rendered> {
+// Limites do canvas: navegadores falham (ou travam) com bitmaps muito grandes, comuns em grande formato.
+const MAX_CANVAS_SIDE = 8192;
+const MAX_CANVAS_PIXELS = 50_000_000;
+
+/** Renderiza a página (sem rotação) e devolve a escala realmente usada, limitada ao tamanho máximo do canvas. */
+export async function renderPage(doc: PdfDoc, index: number, scale: number): Promise<Rendered> {
   const page = await doc.getPage(index + 1);
+  const base = page.getViewport({ scale: 1, rotation: 0 });
+  const w1 = Math.max(1, base.width), h1 = Math.max(1, base.height);
+  const limit = Math.min(MAX_CANVAS_SIDE / Math.max(w1, h1), Math.sqrt(MAX_CANVAS_PIXELS / (w1 * h1)));
+  scale = Math.min(scale, limit);
   const viewport = page.getViewport({ scale, rotation: 0 });
   const canvas = document.createElement("canvas");
   canvas.width = Math.ceil(viewport.width);
   canvas.height = Math.ceil(viewport.height);
   const ctx = canvas.getContext("2d", { willReadFrequently: true })!;
   await page.render({ canvasContext: ctx, viewport, canvas, background: "rgba(0,0,0,0)" } as never).promise;
-  void useMedia;
   return {
     canvas,
     scale,
