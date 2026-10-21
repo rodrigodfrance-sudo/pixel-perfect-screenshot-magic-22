@@ -1,8 +1,8 @@
 import { describe, it, expect } from "vitest";
-import { PDFDocument, rgb } from "pdf-lib";
+import { PDFDocument, rgb, degrees } from "pdf-lib";
 import {
-  analyzePdf, buildBleedPdf, defaultTrim, hasEnoughBleed, mmToPt, ptToMm, uniformBleed, validateGeometry,
-  imageToPdf, type PageJob,
+  analyzePdf, buildBleedPdf, chooseStrategy, cropMarkLines, defaultTrim, hasEnoughBleed, mmToPt, ptToMm,
+  uniformBleed, validateGeometry, validateTrim, imageToPdf, type EdgeSample, type PageJob,
 } from "./engine";
 import { detectKind, statusOf } from "./status";
 
@@ -56,6 +56,7 @@ describe("bleed engine", () => {
     const src = await solidPdf();
     const { bytes } = await buildBleedPdf(src, await jobsFor(src), { cropMarks: false });
     const [a] = await analyzePdf(bytes);
+    if (!a) throw new Error("sem página");
     expect(a.trim).not.toBeNull();
     expect(hasEnoughBleed(a.declaredBleed, uniformBleed(3))).toBe(true);
     expect(hasEnoughBleed(a.declaredBleed, uniformBleed(5))).toBe(false);
@@ -67,6 +68,7 @@ describe("bleed engine", () => {
     p.setTrimBox(0, 0, 300, 300);
     p.setBleedBox(-10, -10, 320, 320);
     const [a] = await analyzePdf(await d.save());
+    if (!a) throw new Error("sem página");
     expect(hasEnoughBleed(a.declaredBleed, uniformBleed(3))).toBe(false);
   });
 
@@ -75,6 +77,7 @@ describe("bleed engine", () => {
     const p = d.addPage([300, 300]);
     p.setTrimBox(-50, 0, 400, 300);
     const [a] = await analyzePdf(await d.save());
+    if (!a) throw new Error("sem página");
     expect(a.trim).toBeNull();
     expect(a.warnings.length).toBeGreaterThan(0);
   });
@@ -109,5 +112,110 @@ describe("bleed engine", () => {
     expect(statusOf([], [{ level: "review" }], [])).toBe("Revisão necessária");
     expect(statusOf([], [], ["x"])).toBe("Aprovado com avisos");
     expect(statusOf([], [], [])).toBe("Aprovado");
+  });
+});
+
+describe("bleed engine — regressões e cobertura extra", () => {
+  const edges = (over: Partial<EdgeSample> = {}): EdgeSample => ({
+    color: { top: [0.2, 0.2, 0.2], right: [0.2, 0.2, 0.2], bottom: [0.2, 0.2, 0.2], left: [0.2, 0.2, 0.2] },
+    variance: { top: 0.5, right: 0.5, bottom: 0.5, left: 0.5 },
+    white: { top: false, right: false, bottom: false, left: false },
+    ...over,
+  });
+
+  it("TrimBox sem BleedBox não trata a margem como sangria existente", async () => {
+    const d = await PDFDocument.create();
+    const p = d.addPage([300, 300]);
+    p.setTrimBox(30, 30, 240, 240); // margem de ~10,6 mm em branco, sem BleedBox
+    const [a] = await analyzePdf(await d.save());
+    if (!a) throw new Error("sem página");
+    expect(hasEnoughBleed(a.declaredBleed, uniformBleed(3))).toBe(false);
+    expect(a.warnings.length).toBeGreaterThan(0);
+  });
+
+  it("página rotacionada gera aviso", async () => {
+    const d = await PDFDocument.create();
+    d.addPage([400, 200]).setRotation(degrees(90));
+    const [a] = await analyzePdf(await d.save());
+    if (!a) throw new Error("sem página");
+    expect(a.rotation).toBe(90);
+    expect(a.warnings.some((w) => w.includes("rotação"))).toBe(true);
+  });
+
+  it("validateTrim recusa corte zerado, não numérico e fora da página", () => {
+    const media = { x: 0, y: 0, w: 300, h: 300 };
+    expect(validateTrim({ x: 0, y: 0, w: 300, h: 300 }, media)).toBeNull();
+    expect(validateTrim({ x: 0, y: 0, w: 0, h: 300 }, media)).not.toBeNull();
+    expect(validateTrim({ x: 0, y: 0, w: Number.NaN, h: 300 }, media)).not.toBeNull();
+    expect(validateTrim({ x: 0, y: 0, w: 500, h: 300 }, media)).not.toBeNull();
+    expect(validateTrim({ x: -40, y: 0, w: 300, h: 300 }, media)).not.toBeNull();
+  });
+
+  it("buildBleedPdf rejeita linha de corte inválida em vez de gerar PDF errado", async () => {
+    const src = await solidPdf([[300, 300]]);
+    const job: PageJob = { index: 0, bleed: uniformBleed(3), method: "mirror", trim: { x: 0, y: 0, w: 0, h: 300 } };
+    await expect(buildBleedPdf(src, [job], { cropMarks: false })).rejects.toThrow(/Página 1/);
+  });
+
+  it("página em branco não derruba o documento", async () => {
+    const d = await PDFDocument.create();
+    d.addPage([300, 300]).drawRectangle({ x: 0, y: 0, width: 300, height: 300, color: rgb(1, 0, 0) });
+    d.addPage([300, 300]); // sem conteúdo
+    const src = await d.save();
+    const jobs = await jobsFor(src);
+    const { bytes, results } = await buildBleedPdf(src, jobs, { cropMarks: true });
+    const doc = await PDFDocument.load(bytes);
+    expect(doc.getPageCount()).toBe(2);
+    expect(results[1]?.notes[0] ?? "").toMatch(/em branco/);
+    expect((await validateGeometry(bytes, results, jobs)).ok).toBe(true);
+  });
+
+  it("avisa quando a sangria é maior que a arte no espelhamento", async () => {
+    const src = await solidPdf([[20, 20]]);
+    const { results } = await buildBleedPdf(src, await jobsFor(src, 20), { cropMarks: false });
+    expect(results[0]?.notes.some((n) => n.includes("maior que a arte"))).toBe(true);
+  });
+
+  it("sangria assimétrica e TrimBox com origem diferente de zero", async () => {
+    const d = await PDFDocument.create();
+    const p = d.addPage([400, 400]);
+    p.drawRectangle({ x: 0, y: 0, width: 400, height: 400, color: rgb(0.5, 0.2, 0.2) });
+    const src = await d.save();
+    const trim = { x: 50, y: 60, w: 200, h: 150 };
+    const bleed = { top: 1, right: 2, bottom: 3, left: 4 };
+    const jobs: PageJob[] = [{ index: 0, bleed, method: "mirror", trim }];
+    const { bytes, results } = await buildBleedPdf(src, jobs, { cropMarks: false });
+    const out = (await PDFDocument.load(bytes)).getPage(0);
+    expect(out.getTrimBox().width).toBeCloseTo(200, 1);
+    expect(out.getTrimBox().height).toBeCloseTo(150, 1);
+    expect(ptToMm(out.getWidth())).toBeCloseTo(ptToMm(200) + 4 + 2, 1);
+    expect(ptToMm(out.getHeight())).toBeCloseTo(ptToMm(150) + 1 + 3, 1);
+    expect(ptToMm(out.getTrimBox().x)).toBeCloseTo(4, 1); // esquerda
+    expect(ptToMm(out.getTrimBox().y)).toBeCloseTo(3, 1); // inferior
+    expect((await validateGeometry(bytes, results, jobs)).ok).toBe(true);
+  });
+
+  it("chooseStrategy: manual vence; auto usa cor sólida em fundo uniforme/branco e espelho em arte variada", () => {
+    expect(chooseStrategy("none", "top", edges())).toBe("none");
+    expect(chooseStrategy("stretch", "top", edges())).toBe("stretch");
+    expect(chooseStrategy("auto", "top")).toBe("mirror");
+    expect(chooseStrategy("auto", "top", edges())).toBe("mirror");
+    expect(chooseStrategy("auto", "left", edges({ variance: { top: 0.5, right: 0.5, bottom: 0.5, left: 0.005 } }))).toBe("solid");
+    expect(chooseStrategy("auto", "right", edges({ white: { top: false, right: true, bottom: false, left: false } }))).toBe("solid");
+  });
+
+  it("marcas de corte ficam fora da sangria e dentro da MediaBox", async () => {
+    const src = await solidPdf();
+    const jobs = await jobsFor(src);
+    const { bytes, results } = await buildBleedPdf(src, jobs, { cropMarks: true });
+    const media = (await PDFDocument.load(bytes)).getPage(0).getMediaBox();
+    const r = results[0];
+    if (!r) throw new Error("sem resultado");
+    const lines = cropMarkLines(r.trim, uniformBleed(3), { cropMarks: true });
+    expect(lines.length).toBe(8);
+    for (const [x1, y1, x2, y2] of lines) {
+      for (const v of [x1, x2]) { expect(v).toBeGreaterThan(-0.001); expect(v).toBeLessThan(media.width + 0.001); }
+      for (const v of [y1, y2]) { expect(v).toBeGreaterThan(-0.001); expect(v).toBeLessThan(media.height + 0.001); }
+    }
   });
 });
