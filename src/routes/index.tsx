@@ -1,24 +1,30 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, ClientOnly } from "@tanstack/react-router";
+import { lazy, Suspense } from "react";
 
-// No head() here: the home route inherits title/description/og/twitter from
-// __root.tsx, and ships no og:image so serve-time hosting can inject the
-// project's social preview (explicit og:image or latest screenshot).
+const BleedStudio = lazy(() => import("@/components/bleed/BleedStudio"));
+
 export const Route = createFileRoute("/")({
+  head: () => ({
+    meta: [
+      { title: "Gerador Inteligente de Sangria — Pré-impressão" },
+      { name: "description", content: "Gere sangria real em PDFs, PNG e JPG, confira na pré-visualização e exporte com TrimBox, BleedBox e marcas de corte validadas." },
+      { property: "og:title", content: "Gerador Inteligente de Sangria" },
+      { property: "og:description", content: "Sangria automática e validada para arquivos de pré-impressão." },
+    ],
+  }),
   component: Index,
 });
 
-// IMPORTANT: Replace this placeholder. See ./README.md for routing conventions.
+function Loading() {
+  return <div className="flex min-h-screen items-center justify-center font-mono text-sm text-muted-foreground">Carregando motor de sangria…</div>;
+}
+
 function Index() {
   return (
-    <div
-      className="flex min-h-screen items-center justify-center"
-      style={{ backgroundColor: "#fcfbf8" }}
-    >
-      <img
-        data-lovable-blank-page-placeholder="REMOVE_THIS"
-        src="https://cdn.gpteng.co/blank-app-v1.svg"
-        alt="Your app will live here!"
-      />
-    </div>
+    <ClientOnly fallback={<Loading />}>
+      <Suspense fallback={<Loading />}>
+        <BleedStudio />
+      </Suspense>
+    </ClientOnly>
   );
 }
