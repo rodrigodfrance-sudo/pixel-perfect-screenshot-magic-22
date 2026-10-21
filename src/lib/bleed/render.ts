@@ -1,7 +1,7 @@
 // Renderização e análise de imagem no navegador (pdf.js). Importar somente no cliente.
 import * as pdfjs from "pdfjs-dist";
 import workerUrl from "pdfjs-dist/build/pdf.worker.min.mjs?url";
-import { SIDES, type Box, type EdgeSample, type Side, type PageResult, type PageJob, sideLabel } from "./engine";
+import { SIDES, type Box, type EdgeSample, type Side, type PageResult, type PageJob, type SampleOffset, sideLabel } from "./engine";
 
 pdfjs.GlobalWorkerOptions.workerSrc = workerUrl;
 
@@ -79,18 +79,30 @@ function band(r: Rendered, t: { x: number; y: number; w: number; h: number }, si
   return { img: ctx.getImageData(x, y, w, h), x, y, w, h };
 }
 
-/** Amostra as bordas internas da linha de corte e gera tiras de 1px para extensão. */
-export async function sampleEdges(doc: PdfDoc, index: number, trim: Box, dpi = 200): Promise<EdgeSample> {
+/** Amostra as bordas internas da linha de corte e gera tiras de 1px para extensão.
+ * @param sampleOffset Recuo interno (mm, por lado) do ponto de início da amostragem.
+ *   0 = borda da TrimBox; valores positivos deslocam a amostragem para dentro da arte.
+ */
+export async function sampleEdges(
+  doc: PdfDoc,
+  index: number,
+  trim: Box,
+  dpi = 200,
+  sampleOffset?: SampleOffset,
+): Promise<EdgeSample> {
   const r = await renderPage(doc, index, dpi / 72);
   const t = boxPx(r, trim);
   const color = {} as EdgeSample["color"], variance = {} as EdgeSample["variance"], white = {} as EdgeSample["white"];
   const strips: EdgeSample["strips"] = {};
   for (const s of SIDES) {
-    const bd = band(r, t, s, 0, 3);
+    // Converte o recuo mm -> px usando a escala de renderização real.
+    const offMm = sampleOffset?.[s] ?? 0;
+    const offPx = Math.round(offMm * (dpi / 25.4));
+    const bd = band(r, t, s, offPx, 3);
     const st = stats(bd.img.data);
     color[s] = st.mean; variance[s] = st.std;
     white[s] = st.mean.every((c) => c > 0.985) && st.std < 0.01;
-    const one = band(r, t, s, 0, 1);
+    const one = band(r, t, s, offPx, 1);
     strips[s] = await toPng(one.img);
   }
   return { color, variance, white, strips };

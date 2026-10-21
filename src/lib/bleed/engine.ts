@@ -19,6 +19,8 @@ export const ptToMm = (pt: number) => pt / MM_TO_PT;
 export type Side = "top" | "right" | "bottom" | "left";
 export const SIDES: Side[] = ["top", "right", "bottom", "left"];
 export type Bleed = Record<Side, number>; // mm
+/** Deslocamento interno (mm) do ponto de início da amostragem de borda — 0 = borda da TrimBox. */
+export type SampleOffset = Record<Side, number>;
 export type Method = "auto" | "mirror" | "solid" | "stretch" | "none";
 export type SideStrategy = "mirror" | "solid" | "stretch" | "none";
 
@@ -56,6 +58,12 @@ export interface PageJob {
   trim: Box;
   skip?: boolean; // já possui sangria válida
   edges?: EdgeSample;
+  /**
+   * Ponto de início (recuo interno, mm) para a amostragem de borda.
+   * 0 = amostra exatamente na borda da TrimBox; valores positivos recuam para dentro
+   * e produzem sangria mais suave quando existe uma moldura fina ou fundo degradê.
+   */
+  sampleOffset?: SampleOffset;
 }
 
 export interface PageResult {
@@ -77,6 +85,10 @@ const eq = (a: number, b: number, tol = 0.5) => Math.abs(a - b) <= tol;
 const sameBox = (a: Box, b: Box) => eq(a.x, b.x) && eq(a.y, b.y) && eq(a.w, b.w) && eq(a.h, b.h);
 
 export function uniformBleed(mm: number): Bleed {
+  return { top: mm, right: mm, bottom: mm, left: mm };
+}
+
+export function uniformSampleOffset(mm: number): SampleOffset {
   return { top: mm, right: mm, bottom: mm, left: mm };
 }
 
@@ -278,12 +290,17 @@ export async function buildBleedPdf(
       top: { x: X - b.left, y: Y + h, w: w + b.left + b.right, h: b.top },
     };
 
+    const offT = mmToPt(job.sampleOffset?.top ?? 0);
+    const offB = mmToPt(job.sampleOffset?.bottom ?? 0);
+    const offL = mmToPt(job.sampleOffset?.left ?? 0);
+    const offR = mmToPt(job.sampleOffset?.right ?? 0);
+
     const mirrorCorners = (s: Side) => {
-      const yy = s === "bottom" ? Y : Y + 2 * h;
+      const yy = s === "bottom" ? Y + offB : Y + 2 * h - offT;
       const ry = s === "bottom" ? Y - b.bottom : Y + h;
       const rh = s === "bottom" ? b.bottom : b.top;
-      clipRect(X - b.left, ry, b.left, rh, () => page.drawPage(emb, { x: X, y: yy, xScale: -1, yScale: -1 }));
-      clipRect(X + w, ry, b.right, rh, () => page.drawPage(emb, { x: X + 2 * w, y: yy, xScale: -1, yScale: -1 }));
+      clipRect(X - b.left, ry, b.left, rh, () => page.drawPage(emb, { x: X + offL, y: yy, xScale: -1, yScale: -1 }));
+      clipRect(X + w, ry, b.right, rh, () => page.drawPage(emb, { x: X + 2 * w - offR, y: yy, xScale: -1, yScale: -1 }));
     };
 
     for (const s of SIDES) {
@@ -311,13 +328,13 @@ export async function buildBleedPdf(
       }
       if (strategies[s] === "mirror") {
         clipRect(r.x, r.y, r.w, r.h, () => {
-          if (s === "left") page.drawPage(emb, { x: X, y: Y, xScale: -1, yScale: 1 });
-          if (s === "right") page.drawPage(emb, { x: X + 2 * w, y: Y, xScale: -1, yScale: 1 });
+          if (s === "left") page.drawPage(emb, { x: X + offL, y: Y, xScale: -1, yScale: 1 });
+          if (s === "right") page.drawPage(emb, { x: X + 2 * w - offR, y: Y, xScale: -1, yScale: 1 });
           if (s === "bottom" || s === "top") {
-            const yy = s === "bottom" ? Y : Y + 2 * h;
+            const yy = s === "bottom" ? Y + offB : Y + 2 * h - offT;
             page.drawPage(emb, { x: X, y: yy, xScale: 1, yScale: -1 });
-            page.drawPage(emb, { x: X, y: yy, xScale: -1, yScale: -1 });
-            page.drawPage(emb, { x: X + 2 * w, y: yy, xScale: -1, yScale: -1 });
+            page.drawPage(emb, { x: X + offL, y: yy, xScale: -1, yScale: -1 });
+            page.drawPage(emb, { x: X + 2 * w - offR, y: yy, xScale: -1, yScale: -1 });
           }
         });
       }

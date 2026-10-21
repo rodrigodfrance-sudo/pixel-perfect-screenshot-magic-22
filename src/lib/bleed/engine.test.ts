@@ -218,4 +218,16 @@ describe("bleed engine — regressões e cobertura extra", () => {
       for (const v of [y1, y2]) { expect(v).toBeGreaterThan(-0.001); expect(v).toBeLessThan(media.height + 0.001); }
     }
   });
+
+  it("buildBleedPdf funciona com sampleOffset (início de referência recuado para dentro da TrimBox)", async () => {
+    const src = await solidPdf();
+    const jobs = (await jobsFor(src)).map((j) => ({
+      ...j,
+      sampleOffset: { top: 0.5, right: 0.5, bottom: 0.5, left: 0.5 },
+    }));
+    const { bytes, results } = await buildBleedPdf(src, jobs, { cropMarks: false });
+    expect(bytes.length).toBeGreaterThan(0);
+    const v = await validateGeometry(bytes, results, jobs);
+    expect(v.ok).toBe(true);
+  });
 });

@@ -2,13 +2,13 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { PDFDocument } from "pdf-lib";
 import {
   analyzePdf, buildBleedPdf, defaultTrim, hasEnoughBleed, imageToPdf, ptToMm, mmToPt, uniformBleed,
-  validateGeometry, validateTrim, cropMarkLines, sideLabel, SIDES,
-  type Bleed, type Box, type Method, type PageAnalysis, type PageJob, type PageResult, type Side,
+  validateGeometry, validateTrim, cropMarkLines, sideLabel, SIDES, uniformSampleOffset,
+  type Bleed, type Box, type Method, type PageAnalysis, type PageJob, type PageResult, type Side, type SampleOffset,
 } from "@/lib/bleed/engine";
 import { openPdf, renderPage, sampleEdges, validateVisual, type PdfDoc, type VisualCheck } from "@/lib/bleed/render";
 import { detectKind, statusOf, type FileKind, type Status } from "@/lib/bleed/status";
 
-interface PageCfg { bleed: Bleed; method: Method; trim: Box; skip: boolean }
+interface PageCfg { bleed: Bleed; method: Method; trim: Box; skip: boolean; sampleOffset: SampleOffset }
 interface Output {
   bytes: Uint8Array; results: PageResult[]; jobs: PageJob[];
   issues: { index: number; level: string; msg: string }[]; visual: VisualCheck[]; status: Status; stale: boolean;
@@ -46,6 +46,8 @@ export default function BleedStudio() {
   const [activeId, setActiveId] = useState<string | null>(null);
   const [pageIdx, setPageIdx] = useState(0);
   const [link, setLink] = useState(true);
+  const [linkOffset, setLinkOffset] = useState(true);
+  const [settingsTab, setSettingsTab] = useState<"basic" | "advanced">("advanced");
   const [scope, setScope] = useState<"page" | "all">("all");
   const [cropMarks, setCropMarks] = useState(true);
   const [reuseExisting, setReuseExisting] = useState(true);
@@ -88,6 +90,7 @@ export default function BleedStudio() {
         if (analyses.length > MAX_PAGES) throw new Error(`mais de ${MAX_PAGES} páginas`);
         const cfgs = analyses.map((a) => ({
           bleed: uniformBleed(3), method: "auto" as Method, trim: defaultTrim(a),
+          sampleOffset: uniformSampleOffset(0),
           skip: reuseExisting && hasEnoughBleed(a.declaredBleed, uniformBleed(3)),
         }));
         const it: Item = { id: crypto.randomUUID(), name: f.name, kind, size: f.size, src, analyses, cfg: cfgs, past: [], future: [], approved: false, warnings };
@@ -119,7 +122,7 @@ export default function BleedStudio() {
   const redo = () => item && item.future.length && update(item.id, (it) => ({ ...it, cfg: it.future[0], future: it.future.slice(1), past: [...it.past, it.cfg], output: it.output && { ...it.output, stale: true } }));
   const restore = () => item && update(item.id, (it) => ({
     ...it, past: [...it.past, it.cfg], future: [], output: undefined, approved: false,
-    cfg: it.analyses.map((a) => ({ bleed: uniformBleed(3), method: "auto", trim: defaultTrim(a), skip: reuseExisting && hasEnoughBleed(a.declaredBleed, uniformBleed(3)) })),
+    cfg: it.analyses.map((a) => ({ bleed: uniformBleed(3), method: "auto", trim: defaultTrim(a), sampleOffset: uniformSampleOffset(0), skip: reuseExisting && hasEnoughBleed(a.declaredBleed, uniformBleed(3)) })),
   }));
 
   // ---------- processamento ----------
@@ -134,8 +137,8 @@ export default function BleedStudio() {
         if (cancelRef.current) { await srcDoc.destroy(); setBusy(null); return; }
         setBusy(`Analisando bordas — página ${i + 1}/${item.cfg.length}`);
         const c = item.cfg[i];
-        const edges = c.skip || c.method === "mirror" || c.method === "none" ? undefined : await sampleEdges(srcDoc, i, c.trim);
-        jobs.push({ index: i, bleed: c.bleed, method: c.method, trim: c.trim, skip: c.skip, edges });
+        const edges = c.skip || c.method === "mirror" || c.method === "none" ? undefined : await sampleEdges(srcDoc, i, c.trim, undefined, c.sampleOffset);
+        jobs.push({ index: i, bleed: c.bleed, method: c.method, trim: c.trim, skip: c.skip, edges, sampleOffset: c.sampleOffset });
       }
       await srcDoc.destroy();
       setBusy("Compondo PDF final");
@@ -240,9 +243,41 @@ export default function BleedStudio() {
         </main>
 
         {/* ---------- configurações ---------- */}
-        <aside className="space-y-5 border-l border-border bg-sidebar p-4 text-sm">
+        <aside className="space-y-4 border-l border-border bg-sidebar p-4 text-sm">
           {item && cfg ? (
             <>
+              {/* Header card similar to callas pdfToolbox */}
+              <div className="rounded border border-border bg-card/60 p-3">
+                <div className="text-xs font-semibold text-foreground">Create Bleed by Mirroring / Generative</div>
+                <div className="mt-1 text-[11px] leading-tight text-muted-foreground">
+                  Gera sangria nas bordas selecionadas espelhando ou estirando o conteúdo a partir do ponto de referência configurado.
+                </div>
+              </div>
+
+              {/* Tabs: Basic Settings / Advanced */}
+              <div className="flex border-b border-border text-xs">
+                <button
+                  onClick={() => setSettingsTab("basic")}
+                  className={`flex-1 pb-2 font-medium transition-colors ${
+                    settingsTab === "basic"
+                      ? "border-b-2 border-primary text-primary"
+                      : "text-muted-foreground hover:text-foreground"
+                  }`}
+                >
+                  Configurações Básicas
+                </button>
+                <button
+                  onClick={() => setSettingsTab("advanced")}
+                  className={`flex-1 pb-2 font-medium transition-colors ${
+                    settingsTab === "advanced"
+                      ? "border-b-2 border-primary text-primary"
+                      : "text-muted-foreground hover:text-foreground"
+                  }`}
+                >
+                  Avançado
+                </button>
+              </div>
+
               <Section title="Aplicar em">
                 <div className="grid grid-cols-2 gap-1 rounded border border-border p-1 text-xs">
                   {(["page", "all"] as const).map((v) => (
@@ -250,37 +285,180 @@ export default function BleedStudio() {
                   ))}
                 </div>
               </Section>
-              <Section title="Sangria (mm)">
-                <label className="mb-2 flex items-center gap-2 text-xs text-muted-foreground"><input type="checkbox" checked={link} onChange={(e) => setLink(e.target.checked)} className="accent-primary" /> mesmo valor nos quatro lados</label>
-                <div className="grid grid-cols-2 gap-2">
-                  {SIDES.map((s) => (
-                    <label key={s} className="text-xs text-muted-foreground">{sideLabel(s)}
-                      <input type="number" step={0.5} min={0} max={20} value={cfg.bleed[s]} onChange={(e) => setSide(s, Math.max(0, Math.min(20, +e.target.value || 0)))} className="mt-1 w-full rounded border border-input bg-background px-2 py-1 font-mono text-foreground" />
-                    </label>
-                  ))}
-                </div>
-              </Section>
-              <Section title="Método de extensão">
-                <select value={cfg.method} onChange={(e) => setCfg((c) => ({ ...c, method: e.target.value as Method, skip: false }))} className="w-full rounded border border-input bg-background px-2 py-1.5 text-foreground">
-                  {METHODS.map((m) => <option key={m.v} value={m.v}>{m.l}</option>)}
-                </select>
-              </Section>
-              <Section title="Linha de corte (mm)">
-                <p className="mb-2 text-[11px] text-muted-foreground">{item.analyses[pageIdx].trim ? "Lida da TrimBox." : "Sem TrimBox — confirme ou corrija."}</p>
-                <div className="grid grid-cols-2 gap-2">
-                  {(["x", "y", "w", "h"] as const).map((k) => (
-                    <label key={k} className="text-xs text-muted-foreground">{({ x: "origem X", y: "origem Y", w: "largura final", h: "altura final" })[k]}
-                      <input type="number" step={0.1} value={+ptToMm(cfg.trim[k]).toFixed(2)} onChange={(e) => setCfg((c) => ({ ...c, skip: false, trim: { ...c.trim, [k]: mmToPt(+e.target.value || 0) } }), true)} className="mt-1 w-full rounded border border-input bg-background px-2 py-1 font-mono text-foreground" />
-                    </label>
-                  ))}
-                </div>
-                {trimProblems.map((m) => <p key={m} className="mt-2 text-[11px] text-destructive">{m}</p>)}
-              </Section>
-              <Section title="Opções">
-                <Toggle checked={cropMarks} onChange={(v) => { setCropMarks(v); item.output && update(item.id, (it) => ({ ...it, output: it.output && { ...it.output, stale: true } })); }} label="Marcas de corte" />
-                <Toggle checked={reuseExisting} onChange={setReuseExisting} label="Reaproveitar sangria existente (novas importações)" />
-                <Toggle checked={cfg.skip} onChange={(v) => setCfg((c) => ({ ...c, skip: v }))} label="Manter página como está" />
-              </Section>
+
+              {settingsTab === "basic" ? (
+                <>
+                  <Section title="Sangria (mm)">
+                    <label className="mb-2 flex items-center gap-2 text-xs text-muted-foreground"><input type="checkbox" checked={link} onChange={(e) => setLink(e.target.checked)} className="accent-primary" /> mesmo valor nos quatro lados</label>
+                    <div className="grid grid-cols-2 gap-2">
+                      {SIDES.map((s) => (
+                        <label key={s} className="text-xs text-muted-foreground">{sideLabel(s)}
+                          <input type="number" step={0.5} min={0} max={20} value={cfg.bleed[s]} onChange={(e) => setSide(s, Math.max(0, Math.min(20, +e.target.value || 0)))} className="mt-1 w-full rounded border border-input bg-background px-2 py-1 font-mono text-foreground" />
+                        </label>
+                      ))}
+                    </div>
+                  </Section>
+                  <Section title="Método de extensão">
+                    <select value={cfg.method} onChange={(e) => setCfg((c) => ({ ...c, method: e.target.value as Method, skip: false }))} className="w-full rounded border border-input bg-background px-2 py-1.5 text-foreground">
+                      {METHODS.map((m) => <option key={m.v} value={m.v}>{m.l}</option>)}
+                    </select>
+                  </Section>
+                  <Section title="Linha de corte (mm)">
+                    <p className="mb-2 text-[11px] text-muted-foreground">{item.analyses[pageIdx].trim ? "Lida da TrimBox." : "Sem TrimBox — confirme ou corrija."}</p>
+                    <div className="grid grid-cols-2 gap-2">
+                      {(["x", "y", "w", "h"] as const).map((k) => (
+                        <label key={k} className="text-xs text-muted-foreground">{({ x: "origem X", y: "origem Y", w: "largura final", h: "altura final" })[k]}
+                          <input type="number" step={0.1} value={+ptToMm(cfg.trim[k]).toFixed(2)} onChange={(e) => setCfg((c) => ({ ...c, skip: false, trim: { ...c.trim, [k]: mmToPt(+e.target.value || 0) } }), true)} className="mt-1 w-full rounded border border-input bg-background px-2 py-1 font-mono text-foreground" />
+                        </label>
+                      ))}
+                    </div>
+                    {trimProblems.map((m) => <p key={m} className="mt-2 text-[11px] text-destructive">{m}</p>)}
+                  </Section>
+                  <Section title="Opções">
+                    <Toggle checked={cropMarks} onChange={(v) => { setCropMarks(v); item.output && update(item.id, (it) => ({ ...it, output: it.output && { ...it.output, stale: true } })); }} label="Marcas de corte" />
+                    <Toggle checked={reuseExisting} onChange={setReuseExisting} label="Reaproveitar sangria existente (novas importações)" />
+                    <Toggle checked={cfg.skip} onChange={(v) => setCfg((c) => ({ ...c, skip: v }))} label="Manter página como está" />
+                  </Section>
+                </>
+              ) : (
+                <>
+                  {/* Advanced Tab - Matching user reference image */}
+                  <Section title="Auto Bleed Detection and Creation">
+                    <Toggle
+                      checked={cfg.method === "auto"}
+                      onChange={(v) => setCfg((c) => ({ ...c, method: v ? "auto" : "mirror", skip: false }))}
+                      label="Auto Bleed Detection and Creation"
+                    />
+                  </Section>
+
+                  <Section title="Stretch factor">
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="number"
+                        min={1}
+                        max={10}
+                        step={1}
+                        defaultValue={1}
+                        className="w-full rounded border border-input bg-background px-2 py-1 font-mono text-foreground"
+                      />
+                      <span className="font-mono text-xs text-muted-foreground select-none">|||||</span>
+                    </div>
+                  </Section>
+
+                  <Section title='Start Point for "Stretch border area as Image"'>
+                    <p className="mb-2 text-[11px] text-muted-foreground">
+                      Início da referência para a sangria (recuo para dentro da TrimBox). Valores positivos (ex: 0.5 mm) evitam bordas com moldura fina, linha branca ou degradê da borda.
+                    </p>
+
+                    <div className="relative rounded border border-border/80 bg-card/30 p-3">
+                      {/* Central Lock Button */}
+                      <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 z-10">
+                        <button
+                          type="button"
+                          onClick={() => setLinkOffset(!linkOffset)}
+                          title={linkOffset ? "Lados vinculados (clique para desvincular)" : "Lados independentes (clique para vincular)"}
+                          className={`flex h-7 w-7 items-center justify-center rounded-full border shadow-sm transition-colors ${
+                            linkOffset
+                              ? "border-primary bg-primary text-primary-foreground"
+                              : "border-border bg-background text-muted-foreground hover:bg-accent"
+                          }`}
+                        >
+                          {linkOffset ? "🔒" : "🔓"}
+                        </button>
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-x-6 gap-y-3">
+                        {/* Top */}
+                        <div>
+                          <label className="text-[11px] text-muted-foreground">Top</label>
+                          <div className="mt-0.5 flex items-center rounded border border-input bg-background px-2 py-1 focus-within:ring-1 focus-within:ring-primary">
+                            <input
+                              type="number"
+                              step={0.1}
+                              min={0}
+                              max={10}
+                              value={+cfg.sampleOffset.top.toFixed(2)}
+                              onChange={(e) => {
+                                const v = Math.max(0, Math.min(10, +e.target.value || 0));
+                                setCfg((c) => ({ ...c, skip: false, sampleOffset: linkOffset ? uniformSampleOffset(v) : { ...c.sampleOffset, top: v } }));
+                              }}
+                              className="w-full bg-transparent font-mono text-xs text-foreground outline-none"
+                            />
+                            <span className="font-mono text-[10px] text-muted-foreground">mm</span>
+                          </div>
+                        </div>
+
+                        {/* Left */}
+                        <div>
+                          <label className="text-[11px] text-muted-foreground">Left</label>
+                          <div className="mt-0.5 flex items-center rounded border border-input bg-background px-2 py-1 focus-within:ring-1 focus-within:ring-primary">
+                            <input
+                              type="number"
+                              step={0.1}
+                              min={0}
+                              max={10}
+                              value={+cfg.sampleOffset.left.toFixed(2)}
+                              onChange={(e) => {
+                                const v = Math.max(0, Math.min(10, +e.target.value || 0));
+                                setCfg((c) => ({ ...c, skip: false, sampleOffset: linkOffset ? uniformSampleOffset(v) : { ...c.sampleOffset, left: v } }));
+                              }}
+                              className="w-full bg-transparent font-mono text-xs text-foreground outline-none"
+                            />
+                            <span className="font-mono text-[10px] text-muted-foreground">mm</span>
+                          </div>
+                        </div>
+
+                        {/* Bottom */}
+                        <div>
+                          <label className="text-[11px] text-muted-foreground">Bottom</label>
+                          <div className="mt-0.5 flex items-center rounded border border-input bg-background px-2 py-1 focus-within:ring-1 focus-within:ring-primary">
+                            <input
+                              type="number"
+                              step={0.1}
+                              min={0}
+                              max={10}
+                              value={+cfg.sampleOffset.bottom.toFixed(2)}
+                              onChange={(e) => {
+                                const v = Math.max(0, Math.min(10, +e.target.value || 0));
+                                setCfg((c) => ({ ...c, skip: false, sampleOffset: linkOffset ? uniformSampleOffset(v) : { ...c.sampleOffset, bottom: v } }));
+                              }}
+                              className="w-full bg-transparent font-mono text-xs text-foreground outline-none"
+                            />
+                            <span className="font-mono text-[10px] text-muted-foreground">mm</span>
+                          </div>
+                        </div>
+
+                        {/* Right */}
+                        <div>
+                          <label className="text-[11px] text-muted-foreground">Right</label>
+                          <div className="mt-0.5 flex items-center rounded border border-input bg-background px-2 py-1 focus-within:ring-1 focus-within:ring-primary">
+                            <input
+                              type="number"
+                              step={0.1}
+                              min={0}
+                              max={10}
+                              value={+cfg.sampleOffset.right.toFixed(2)}
+                              onChange={(e) => {
+                                const v = Math.max(0, Math.min(10, +e.target.value || 0));
+                                setCfg((c) => ({ ...c, skip: false, sampleOffset: linkOffset ? uniformSampleOffset(v) : { ...c.sampleOffset, right: v } }));
+                              }}
+                              className="w-full bg-transparent font-mono text-xs text-foreground outline-none"
+                            />
+                            <span className="font-mono text-[10px] text-muted-foreground">mm</span>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </Section>
+
+                  <Section title="Método ativo">
+                    <select value={cfg.method} onChange={(e) => setCfg((c) => ({ ...c, method: e.target.value as Method, skip: false }))} className="w-full rounded border border-input bg-background px-2 py-1.5 text-foreground">
+                      {METHODS.map((m) => <option key={m.v} value={m.v}>{m.l}</option>)}
+                    </select>
+                  </Section>
+                </>
+              )}
+
               <div className="flex gap-1 text-xs">
                 <button onClick={undo} disabled={!item.past.length} className="flex-1 rounded border border-border py-1.5 hover:bg-accent disabled:opacity-40">↶ Desfazer</button>
                 <button onClick={redo} disabled={!item.future.length} className="flex-1 rounded border border-border py-1.5 hover:bg-accent disabled:opacity-40">↷ Refazer</button>
@@ -369,6 +547,16 @@ function Preview({ item, pageIdx, cropMarks }: { item: Item; pageIdx: number; cr
   }, [img]);
   const trim = showAfter && res ? res.trim : cfg.trim;
   const safe = useMemo(() => ({ x: trim.x + mmToPt(3), y: trim.y + mmToPt(3), w: trim.w - mmToPt(6), h: trim.h - mmToPt(6) }), [trim]);
+  const hasOffset = SIDES.some((s) => (cfg.sampleOffset?.[s] ?? 0) > 0.05);
+  const startPointBox = useMemo(() => {
+    const off = cfg.sampleOffset ?? uniformSampleOffset(0);
+    return {
+      x: trim.x + mmToPt(off.left),
+      y: trim.y + mmToPt(off.bottom),
+      w: Math.max(1, trim.w - mmToPt(off.left + off.right)),
+      h: Math.max(1, trim.h - mmToPt(off.top + off.bottom)),
+    };
+  }, [trim, cfg.sampleOffset]);
   const job = out?.jobs[pageIdx];
 
   return (
@@ -386,7 +574,11 @@ function Preview({ item, pageIdx, cropMarks }: { item: Item; pageIdx: number; cr
           <button onClick={fit} disabled={!img} className="rounded border border-border px-2 hover:bg-accent disabled:opacity-40">ajustar</button>
         </div>
         <div className="ml-auto flex flex-wrap gap-3 text-muted-foreground">
-          <Legend c="bg-trim" l="Linha de corte" /><Legend c="bg-bleed" l="Área de sangria" /><Legend c="bg-safe" l="Segurança 3 mm" />{cropMarks && <Legend c="bg-marks" l="Marcas de corte" />}
+          <Legend c="bg-trim" l="Linha de corte" />
+          <Legend c="bg-bleed" l="Área de sangria" />
+          <Legend c="bg-safe" l="Segurança 3 mm" />
+          {hasOffset && <span className="flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-sm border border-purple-400 bg-purple-500/30" />Início ref. (Start Point)</span>}
+          {cropMarks && <Legend c="bg-marks" l="Marcas de corte" />}
         </div>
       </div>
       <div
@@ -410,6 +602,9 @@ function Preview({ item, pageIdx, cropMarks }: { item: Item; pageIdx: number; cr
                 {showAfter && res && <rect {...rect(res.bleedBox)} fill="none" className="stroke-bleed" strokeWidth={2} strokeDasharray="8 5" />}
                 <rect {...rect(safe)} fill="none" className="stroke-safe" strokeWidth={1.5} strokeDasharray="3 4" />
                 <rect {...rect(trim)} fill="none" className="stroke-trim" strokeWidth={2} />
+                {hasOffset && (
+                  <rect {...rect(startPointBox)} fill="none" stroke="#a855f7" strokeWidth={1.5} strokeDasharray="5 3" />
+                )}
                 {showAfter && res && cropMarks && job && !res.skipped && cropMarkLines(res.trim, job.bleed, { cropMarks }).map(([x1, y1, x2, y2], i) => {
                   const [a, b] = img.toPx(x1, y1), [c, d] = img.toPx(x2, y2);
                   return <line key={i} x1={a} y1={b} x2={c} y2={d} className="stroke-marks" strokeWidth={4} strokeOpacity={0.35} />;
