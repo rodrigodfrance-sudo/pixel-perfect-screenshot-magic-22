@@ -2,6 +2,7 @@
 import {
   PDFDocument,
   PDFPage,
+  PDFName,
   cmyk,
   rgb,
   pushGraphicsState,
@@ -92,10 +93,8 @@ export function analyzePage(p: PDFPage, index: number): PageAnalysis {
   const trimRaw = boxFrom(p.getTrimBox());
   const bleedRaw = boxFrom(p.getBleedBox());
   // pdf-lib devolve a CropBox quando Trim/Bleed não existem
-  const hasTrim = !sameBox(trimRaw, crop) || p.node.lookup(p.node.context.obj("TrimBox") as never) !== undefined
-    ? !!p.node.get(p.node.context.obj("TrimBox") as never)
-    : false;
-  const hasBleed = !!p.node.get(p.node.context.obj("BleedBox") as never);
+  const hasTrim = !!p.node.get(PDFName.of("TrimBox")) || !!p.node.get(PDFName.of("ArtBox"));
+  const hasBleed = !!p.node.get(PDFName.of("BleedBox"));
   let trim: Box | null = hasTrim ? trimRaw : null;
   let bleedBox: Box | null = hasBleed ? bleedRaw : null;
 
