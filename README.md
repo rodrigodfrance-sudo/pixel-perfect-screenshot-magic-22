@@ -1,4 +1,6 @@
-# Welcome to your Lovable project
+# Gerador Inteligente de Sangria
+
+Ferramenta de pré-impressão que gera sangria real em PDF, PNG e JPG, tudo no navegador: detecta a linha de corte (TrimBox), estende a arte (espelhamento vetorial, cor sólida ou extrapolação de borda), adiciona marcas de corte e valida o arquivo final (geometria e conteúdo renderizado) antes de exportar.
 
 This project was built with [Lovable](https://lovable.dev).
 
