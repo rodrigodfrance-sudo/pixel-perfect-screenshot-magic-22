@@ -1,8 +1,20 @@
 import { describe, it, expect } from "vitest";
 import { PDFDocument, rgb, degrees } from "pdf-lib";
 import {
-  analyzePdf, buildBleedPdf, chooseStrategy, cropMarkLines, defaultTrim, hasEnoughBleed, mmToPt, ptToMm,
-  uniformBleed, validateGeometry, validateTrim, imageToPdf, type EdgeSample, type PageJob,
+  analyzePdf,
+  buildBleedPdf,
+  chooseStrategy,
+  cropMarkLines,
+  defaultTrim,
+  hasEnoughBleed,
+  mmToPt,
+  ptToMm,
+  uniformBleed,
+  validateGeometry,
+  validateTrim,
+  imageToPdf,
+  type EdgeSample,
+  type PageJob,
 } from "./engine";
 import { detectKind, statusOf } from "./status";
 
@@ -17,7 +29,12 @@ async function solidPdf(sizes: [number, number][] = [[A4[0], A4[1]]]) {
   return d.save();
 }
 const jobsFor = async (bytes: Uint8Array, mm = 3, method: PageJob["method"] = "mirror") =>
-  (await analyzePdf(bytes)).map((a) => ({ index: a.index, bleed: uniformBleed(mm), method, trim: defaultTrim(a) }));
+  (await analyzePdf(bytes)).map((a) => ({
+    index: a.index,
+    bleed: uniformBleed(mm),
+    method,
+    trim: defaultTrim(a),
+  }));
 
 describe("bleed engine", () => {
   it("3 mm equals 8.5039 pt", () => {
@@ -29,7 +46,9 @@ describe("bleed engine", () => {
     const jobs = await jobsFor(src);
     const { bytes } = await buildBleedPdf(src, jobs, { cropMarks: false });
     const p = (await PDFDocument.load(bytes)).getPage(0);
-    const t = p.getTrimBox(), b = p.getBleedBox(), m = p.getMediaBox();
+    const t = p.getTrimBox(),
+      b = p.getBleedBox(),
+      m = p.getMediaBox();
     expect(ptToMm(t.width)).toBeCloseTo(210, 1);
     expect(ptToMm(t.height)).toBeCloseTo(297, 1);
     expect(ptToMm(b.width)).toBeCloseTo(216, 1);
@@ -83,7 +102,11 @@ describe("bleed engine", () => {
   });
 
   it("handles multi-page documents with portrait and landscape sizes", async () => {
-    const src = await solidPdf([[A4[0], A4[1]], [A4[1], A4[0]], [252, 144]]);
+    const src = await solidPdf([
+      [A4[0], A4[1]],
+      [A4[1], A4[0]],
+      [252, 144],
+    ]);
     const jobs = await jobsFor(src);
     const { bytes, results } = await buildBleedPdf(src, jobs, { cropMarks: false });
     const doc = await PDFDocument.load(bytes);
@@ -94,7 +117,12 @@ describe("bleed engine", () => {
 
   it("converts an image to PDF at the given DPI", async () => {
     // PNG 1x1 vermelho
-    const png = Uint8Array.from(atob("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8DwHwAFBQIAX8jx0gAAAABJRU5ErkJggg=="), (c) => c.charCodeAt(0));
+    const png = Uint8Array.from(
+      atob(
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8DwHwAFBQIAX8jx0gAAAABJRU5ErkJggg==",
+      ),
+      (c) => c.charCodeAt(0),
+    );
     const pdf = await imageToPdf(png, "png", 300);
     const p = (await PDFDocument.load(pdf)).getPage(0);
     expect(p.getWidth()).toBeCloseTo(72 / 300, 3);
@@ -117,7 +145,12 @@ describe("bleed engine", () => {
 
 describe("bleed engine — regressões e cobertura extra", () => {
   const edges = (over: Partial<EdgeSample> = {}): EdgeSample => ({
-    color: { top: [0.2, 0.2, 0.2], right: [0.2, 0.2, 0.2], bottom: [0.2, 0.2, 0.2], left: [0.2, 0.2, 0.2] },
+    color: {
+      top: [0.2, 0.2, 0.2],
+      right: [0.2, 0.2, 0.2],
+      bottom: [0.2, 0.2, 0.2],
+      left: [0.2, 0.2, 0.2],
+    },
     variance: { top: 0.5, right: 0.5, bottom: 0.5, left: 0.5 },
     white: { top: false, right: false, bottom: false, left: false },
     ...over,
@@ -153,13 +186,24 @@ describe("bleed engine — regressões e cobertura extra", () => {
 
   it("buildBleedPdf rejeita linha de corte inválida em vez de gerar PDF errado", async () => {
     const src = await solidPdf([[300, 300]]);
-    const job: PageJob = { index: 0, bleed: uniformBleed(3), method: "mirror", trim: { x: 0, y: 0, w: 0, h: 300 } };
+    const job: PageJob = {
+      index: 0,
+      bleed: uniformBleed(3),
+      method: "mirror",
+      trim: { x: 0, y: 0, w: 0, h: 300 },
+    };
     await expect(buildBleedPdf(src, [job], { cropMarks: false })).rejects.toThrow(/Página 1/);
   });
 
   it("página em branco não derruba o documento", async () => {
     const d = await PDFDocument.create();
-    d.addPage([300, 300]).drawRectangle({ x: 0, y: 0, width: 300, height: 300, color: rgb(1, 0, 0) });
+    d.addPage([300, 300]).drawRectangle({
+      x: 0,
+      y: 0,
+      width: 300,
+      height: 300,
+      color: rgb(1, 0, 0),
+    });
     d.addPage([300, 300]); // sem conteúdo
     const src = await d.save();
     const jobs = await jobsFor(src);
@@ -200,8 +244,20 @@ describe("bleed engine — regressões e cobertura extra", () => {
     expect(chooseStrategy("stretch", "top", edges())).toBe("stretch");
     expect(chooseStrategy("auto", "top")).toBe("mirror");
     expect(chooseStrategy("auto", "top", edges())).toBe("mirror");
-    expect(chooseStrategy("auto", "left", edges({ variance: { top: 0.5, right: 0.5, bottom: 0.5, left: 0.005 } }))).toBe("solid");
-    expect(chooseStrategy("auto", "right", edges({ white: { top: false, right: true, bottom: false, left: false } }))).toBe("solid");
+    expect(
+      chooseStrategy(
+        "auto",
+        "left",
+        edges({ variance: { top: 0.5, right: 0.5, bottom: 0.5, left: 0.005 } }),
+      ),
+    ).toBe("solid");
+    expect(
+      chooseStrategy(
+        "auto",
+        "right",
+        edges({ white: { top: false, right: true, bottom: false, left: false } }),
+      ),
+    ).toBe("solid");
   });
 
   it("marcas de corte ficam fora da sangria e dentro da MediaBox", async () => {
@@ -214,8 +270,14 @@ describe("bleed engine — regressões e cobertura extra", () => {
     const lines = cropMarkLines(r.trim, uniformBleed(3), { cropMarks: true });
     expect(lines.length).toBe(8);
     for (const [x1, y1, x2, y2] of lines) {
-      for (const v of [x1, x2]) { expect(v).toBeGreaterThan(-0.001); expect(v).toBeLessThan(media.width + 0.001); }
-      for (const v of [y1, y2]) { expect(v).toBeGreaterThan(-0.001); expect(v).toBeLessThan(media.height + 0.001); }
+      for (const v of [x1, x2]) {
+        expect(v).toBeGreaterThan(-0.001);
+        expect(v).toBeLessThan(media.width + 0.001);
+      }
+      for (const v of [y1, y2]) {
+        expect(v).toBeGreaterThan(-0.001);
+        expect(v).toBeLessThan(media.height + 0.001);
+      }
     }
   });
 

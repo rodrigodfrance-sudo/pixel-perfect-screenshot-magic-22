@@ -1,63 +1,76 @@
-import { Sun, Moon, Monitor, Check } from "lucide-react";
-import { useTheme } from "@/hooks/use-theme";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
+import { Sun, Moon, Monitor } from "lucide-react";
+import { useTheme, type Theme } from "@/hooks/use-theme";
 
 interface ThemeToggleProps {
   className?: string;
+  showLabels?: boolean;
 }
 
-export function ThemeToggle({ className }: ThemeToggleProps) {
-  const { theme, resolvedTheme, setTheme, isDark } = useTheme();
+const THEME_OPTIONS: Array<{
+  value: Theme;
+  label: string;
+  icon: typeof Sun;
+  activeColor: string;
+}> = [
+  {
+    value: "light",
+    label: "Claro",
+    icon: Sun,
+    activeColor: "text-amber-500",
+  },
+  {
+    value: "dark",
+    label: "Escuro",
+    icon: Moon,
+    activeColor: "text-blue-400",
+  },
+  {
+    value: "system",
+    label: "Sistema",
+    icon: Monitor,
+    activeColor: "text-primary",
+  },
+];
+
+export function ThemeToggle({ className, showLabels = true }: ThemeToggleProps) {
+  const { theme, setTheme } = useTheme();
 
   return (
-    <DropdownMenu>
-      <DropdownMenuTrigger asChild>
-        <button
-          type="button"
-          aria-label="Alternar tema de cor (claro, escuro ou sistema)"
-          className={`group inline-flex items-center gap-1.5 rounded border border-border bg-card/60 px-2.5 py-1 text-xs font-medium text-foreground transition-all hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring ${className ?? ""}`}
-        >
-          {isDark ? (
-            <Moon className="h-3.5 w-3.5 text-primary transition-transform group-hover:-rotate-12" />
-          ) : (
-            <Sun className="h-3.5 w-3.5 text-primary transition-transform group-hover:rotate-45" />
-          )}
-          <span className="font-sans text-xs">
-            {theme === "system" ? "Sistema" : isDark ? "Modo escuro" : "Modo claro"}
-          </span>
-        </button>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="w-36 text-xs font-sans">
-        <DropdownMenuItem
-          onClick={() => setTheme("light")}
-          className="flex cursor-pointer items-center gap-2 py-1.5 text-xs"
-        >
-          <Sun className="h-3.5 w-3.5 text-amber-500" />
-          <span>Modo claro</span>
-          {theme === "light" && <Check className="ml-auto h-3.5 w-3.5 text-primary" />}
-        </DropdownMenuItem>
-        <DropdownMenuItem
-          onClick={() => setTheme("dark")}
-          className="flex cursor-pointer items-center gap-2 py-1.5 text-xs"
-        >
-          <Moon className="h-3.5 w-3.5 text-blue-400" />
-          <span>Modo escuro</span>
-          {theme === "dark" && <Check className="ml-auto h-3.5 w-3.5 text-primary" />}
-        </DropdownMenuItem>
-        <DropdownMenuItem
-          onClick={() => setTheme("system")}
-          className="flex cursor-pointer items-center gap-2 py-1.5 text-xs"
-        >
-          <Monitor className="h-3.5 w-3.5 text-muted-foreground" />
-          <span>Sistema</span>
-          {theme === "system" && <Check className="ml-auto h-3.5 w-3.5 text-primary" />}
-        </DropdownMenuItem>
-      </DropdownMenuContent>
-    </DropdownMenu>
+    <div
+      role="radiogroup"
+      aria-label="Escolher tema visual (claro, escuro ou sistema)"
+      className={`inline-flex items-center rounded-md border border-border bg-muted/60 p-0.5 text-xs font-sans backdrop-blur-xs ${className ?? ""}`}
+    >
+      {THEME_OPTIONS.map((opt) => {
+        const Icon = opt.icon;
+        const isSelected = theme === opt.value;
+
+        return (
+          <button
+            key={opt.value}
+            type="button"
+            role="radio"
+            aria-checked={isSelected}
+            aria-label={`Ativar modo ${opt.label.toLowerCase()}`}
+            title={`Ativar modo ${opt.label.toLowerCase()}`}
+            onClick={() => setTheme(opt.value)}
+            className={`group inline-flex items-center gap-1.5 rounded-[calc(var(--radius)-2px)] px-2.5 py-1 font-medium transition-all duration-150 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring ${
+              isSelected
+                ? "bg-background text-foreground shadow-xs"
+                : "text-muted-foreground hover:bg-background/40 hover:text-foreground"
+            }`}
+          >
+            <Icon
+              className={`h-3.5 w-3.5 transition-transform duration-150 ${
+                isSelected
+                  ? `${opt.activeColor} scale-110`
+                  : "text-muted-foreground/80 group-hover:scale-105"
+              }`}
+            />
+            {showLabels && <span className="hidden sm:inline font-sans text-xs">{opt.label}</span>}
+          </button>
+        );
+      })}
+    </div>
   );
 }

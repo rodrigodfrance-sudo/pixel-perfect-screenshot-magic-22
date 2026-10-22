@@ -24,7 +24,12 @@ export type SampleOffset = Record<Side, number>;
 export type Method = "auto" | "mirror" | "solid" | "stretch" | "none";
 export type SideStrategy = "mirror" | "solid" | "stretch" | "none";
 
-export interface Box { x: number; y: number; w: number; h: number } // pt
+export interface Box {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+} // pt
 
 export interface PageAnalysis {
   index: number;
@@ -76,10 +81,17 @@ export interface PageResult {
   notes: string[];
 }
 
-export interface BuildOptions { cropMarks: boolean; markOffsetMm?: number; markLengthMm?: number }
+export interface BuildOptions {
+  cropMarks: boolean;
+  markOffsetMm?: number;
+  markLengthMm?: number;
+}
 
 const boxFrom = (r: { x: number; y: number; width: number; height: number }): Box => ({
-  x: r.x, y: r.y, w: r.width, h: r.height,
+  x: r.x,
+  y: r.y,
+  w: r.width,
+  h: r.height,
 });
 const eq = (a: number, b: number, tol = 0.5) => Math.abs(a - b) <= tol;
 const sameBox = (a: Box, b: Box) => eq(a.x, b.x) && eq(a.y, b.y) && eq(a.w, b.w) && eq(a.h, b.h);
@@ -111,7 +123,10 @@ export function analyzePage(p: PDFPage, index: number): PageAnalysis {
   let bleedBox: Box | null = hasBleed ? bleedRaw : null;
 
   const inside = (a: Box, b: Box) =>
-    a.x >= b.x - 0.5 && a.y >= b.y - 0.5 && a.x + a.w <= b.x + b.w + 0.5 && a.y + a.h <= b.y + b.h + 0.5;
+    a.x >= b.x - 0.5 &&
+    a.y >= b.y - 0.5 &&
+    a.x + a.w <= b.x + b.w + 0.5 &&
+    a.y + a.h <= b.y + b.h + 0.5;
 
   if (trim && !inside(trim, media)) {
     warnings.push("TrimBox ultrapassa a MediaBox — caixa ignorada, confirme a linha de corte.");
@@ -138,7 +153,7 @@ export function analyzePage(p: PDFPage, index: number): PageAnalysis {
     } else if (!sameBox(trim, media)) {
       // Sem BleedBox, a área entre TrimBox e MediaBox pode ser margem em branco/marcas, não arte.
       warnings.push(
-        "TrimBox sem BleedBox: a área fora do corte não foi tratada como sangria. Se a arte já tem sangria, ative \"Manter página como está\".",
+        'TrimBox sem BleedBox: a área fora do corte não foi tratada como sangria. Se a arte já tem sangria, ative "Manter página como está".',
       );
     }
   } else {
@@ -154,19 +169,25 @@ export function analyzePage(p: PDFPage, index: number): PageAnalysis {
 }
 
 function intersect(a: Box, b: Box): Box {
-  const x = Math.max(a.x, b.x), y = Math.max(a.y, b.y);
-  const x2 = Math.min(a.x + a.w, b.x + b.w), y2 = Math.min(a.y + a.h, b.y + b.h);
+  const x = Math.max(a.x, b.x),
+    y = Math.max(a.y, b.y);
+  const x2 = Math.min(a.x + a.w, b.x + b.w),
+    y2 = Math.min(a.y + a.h, b.y + b.h);
   return { x, y, w: Math.max(0, x2 - x), h: Math.max(0, y2 - y) };
 }
 
 /** Valida a linha de corte contra a MediaBox. Devolve a mensagem do problema, ou null se estiver correta. */
 export function validateTrim(trim: Box, media: Box): string | null {
-  if (![trim.x, trim.y, trim.w, trim.h].every(Number.isFinite)) return "Linha de corte com valores inválidos.";
-  if (trim.w < mmToPt(1) || trim.h < mmToPt(1)) return "Largura e altura finais precisam ter pelo menos 1 mm.";
+  if (![trim.x, trim.y, trim.w, trim.h].every(Number.isFinite))
+    return "Linha de corte com valores inválidos.";
+  if (trim.w < mmToPt(1) || trim.h < mmToPt(1))
+    return "Largura e altura finais precisam ter pelo menos 1 mm.";
   const tol = 0.5;
   if (
-    trim.x < media.x - tol || trim.y < media.y - tol ||
-    trim.x + trim.w > media.x + media.w + tol || trim.y + trim.h > media.y + media.h + tol
+    trim.x < media.x - tol ||
+    trim.y < media.y - tol ||
+    trim.x + trim.w > media.x + media.w + tol ||
+    trim.y + trim.h > media.y + media.h + tol
   )
     return "A linha de corte ultrapassa a página original.";
   return null;
@@ -191,11 +212,17 @@ export function chooseStrategy(method: Method, side: Side, edges?: EdgeSample): 
 }
 
 /** Margem reservada para marcas de corte (mm). */
-export const markMarginMm = (o: BuildOptions) => (o.cropMarks ? (o.markOffsetMm ?? 2) + (o.markLengthMm ?? 5) + 1 : 0);
+export const markMarginMm = (o: BuildOptions) =>
+  o.cropMarks ? (o.markOffsetMm ?? 2) + (o.markLengthMm ?? 5) + 1 : 0;
 
 export function outputGeometry(trim: Box, bleed: Bleed, o: BuildOptions) {
   const m = mmToPt(markMarginMm(o));
-  const b = { top: mmToPt(bleed.top), right: mmToPt(bleed.right), bottom: mmToPt(bleed.bottom), left: mmToPt(bleed.left) };
+  const b = {
+    top: mmToPt(bleed.top),
+    right: mmToPt(bleed.right),
+    bottom: mmToPt(bleed.bottom),
+    left: mmToPt(bleed.left),
+  };
   const W = trim.w + b.left + b.right + 2 * m;
   const H = trim.h + b.top + b.bottom + 2 * m;
   const outTrim: Box = { x: m + b.left, y: m + b.bottom, w: trim.w, h: trim.h };
@@ -236,7 +263,8 @@ export async function buildBleedPdf(
     const problem = validateTrim(t, analyzePage(srcPage, job.index).media);
     if (problem) throw new Error(`Página ${job.index + 1}: ${problem}`);
     const badSide = SIDES.find((s) => !Number.isFinite(job.bleed[s]) || job.bleed[s] < 0);
-    if (badSide) throw new Error(`Página ${job.index + 1}: sangria ${sideLabel(badSide)} inválida.`);
+    if (badSide)
+      throw new Error(`Página ${job.index + 1}: sangria ${sideLabel(badSide)} inválida.`);
 
     // Página sem conteúdo (sem /Contents) não pode ser embutida: gera só a geometria.
     const emb = srcPage.node.Contents()
@@ -244,7 +272,10 @@ export async function buildBleedPdf(
       : null;
     const g = outputGeometry(t, job.bleed, opts);
     const page = out.addPage([g.W, g.H]);
-    const X = g.outTrim.x, Y = g.outTrim.y, w = t.w, h = t.h;
+    const X = g.outTrim.x,
+      Y = g.outTrim.y,
+      w = t.w,
+      h = t.h;
     const strategies = {} as Record<Side, SideStrategy>;
     const notes: string[] = [];
 
@@ -260,14 +291,21 @@ export async function buildBleedPdf(
       for (const s of SIDES) strategies[s] = "none";
       finish();
       results.push({
-        index: job.index, strategies, trim: g.outTrim, bleedBox: g.outBleed,
-        media: { x: 0, y: 0, w: g.W, h: g.H }, skipped: false,
-        notes: ["Página em branco: não há arte para estender; apenas as caixas de corte e sangria foram aplicadas."],
+        index: job.index,
+        strategies,
+        trim: g.outTrim,
+        bleedBox: g.outBleed,
+        media: { x: 0, y: 0, w: g.W, h: g.H },
+        skipped: false,
+        notes: [
+          "Página em branco: não há arte para estender; apenas as caixas de corte e sangria foram aplicadas.",
+        ],
       });
       continue;
     }
 
-    for (const s of SIDES) strategies[s] = job.bleed[s] > 0 ? chooseStrategy(job.method, s, job.edges) : "none";
+    for (const s of SIDES)
+      strategies[s] = job.bleed[s] > 0 ? chooseStrategy(job.method, s, job.edges) : "none";
     for (const s of SIDES) {
       const art = s === "top" || s === "bottom" ? h : w;
       if (strategies[s] === "mirror" && mmToPt(job.bleed[s]) > art + 0.01)
@@ -299,8 +337,12 @@ export async function buildBleedPdf(
       const yy = s === "bottom" ? Y + offB : Y + 2 * h - offT;
       const ry = s === "bottom" ? Y - b.bottom : Y + h;
       const rh = s === "bottom" ? b.bottom : b.top;
-      clipRect(X - b.left, ry, b.left, rh, () => page.drawPage(emb, { x: X + offL, y: yy, xScale: -1, yScale: -1 }));
-      clipRect(X + w, ry, b.right, rh, () => page.drawPage(emb, { x: X + 2 * w - offR, y: yy, xScale: -1, yScale: -1 }));
+      clipRect(X - b.left, ry, b.left, rh, () =>
+        page.drawPage(emb, { x: X + offL, y: yy, xScale: -1, yScale: -1 }),
+      );
+      clipRect(X + w, ry, b.right, rh, () =>
+        page.drawPage(emb, { x: X + 2 * w - offR, y: yy, xScale: -1, yScale: -1 }),
+      );
     };
 
     for (const s of SIDES) {
@@ -309,8 +351,15 @@ export async function buildBleedPdf(
       if (st === "none" || r.w <= 0 || r.h <= 0) continue;
       if (st === "solid") {
         const c = job.edges?.color[s] ?? [1, 1, 1];
-        page.drawRectangle({ x: r.x, y: r.y, width: r.w, height: r.h, color: rgb(c[0], c[1], c[2]) });
-        if (job.edges?.white[s]) notes.push(`Borda ${sideLabel(s)} branca: confirme se o fundo branco é intencional.`);
+        page.drawRectangle({
+          x: r.x,
+          y: r.y,
+          width: r.w,
+          height: r.h,
+          color: rgb(c[0], c[1], c[2]),
+        });
+        if (job.edges?.white[s])
+          notes.push(`Borda ${sideLabel(s)} branca: confirme se o fundo branco é intencional.`);
       } else if (st === "stretch") {
         const strip = job.edges?.strips?.[s];
         if (!strip) {
@@ -329,7 +378,8 @@ export async function buildBleedPdf(
       if (strategies[s] === "mirror") {
         clipRect(r.x, r.y, r.w, r.h, () => {
           if (s === "left") page.drawPage(emb, { x: X + offL, y: Y, xScale: -1, yScale: 1 });
-          if (s === "right") page.drawPage(emb, { x: X + 2 * w - offR, y: Y, xScale: -1, yScale: 1 });
+          if (s === "right")
+            page.drawPage(emb, { x: X + 2 * w - offR, y: Y, xScale: -1, yScale: 1 });
           if (s === "bottom" || s === "top") {
             const yy = s === "bottom" ? Y + offB : Y + 2 * h - offT;
             page.drawPage(emb, { x: X, y: yy, xScale: 1, yScale: -1 });
@@ -363,30 +413,49 @@ export function cropMarkLines(trim: Box, bleed: Bleed, o: BuildOptions) {
   const off = mmToPt(o.markOffsetMm ?? 2);
   const len = mmToPt(o.markLengthMm ?? 5);
   const { x, y, w, h } = trim;
-  const L = x - mmToPt(bleed.left) - off, R = x + w + mmToPt(bleed.right) + off;
-  const B = y - mmToPt(bleed.bottom) - off, T = y + h + mmToPt(bleed.top) + off;
+  const L = x - mmToPt(bleed.left) - off,
+    R = x + w + mmToPt(bleed.right) + off;
+  const B = y - mmToPt(bleed.bottom) - off,
+    T = y + h + mmToPt(bleed.top) + off;
   return [
     // horizontais (indicam y do corte), fora da sangria
-    [L - len, y, L, y], [R, y, R + len, y], [L - len, y + h, L, y + h], [R, y + h, R + len, y + h],
+    [L - len, y, L, y],
+    [R, y, R + len, y],
+    [L - len, y + h, L, y + h],
+    [R, y + h, R + len, y + h],
     // verticais (indicam x do corte)
-    [x, B - len, x, B], [x + w, B - len, x + w, B], [x, T, x, T + len], [x + w, T, x + w, T + len],
+    [x, B - len, x, B],
+    [x + w, B - len, x + w, B],
+    [x, T, x, T + len],
+    [x + w, T, x + w, T + len],
   ] as [number, number, number, number][];
 }
 
 function drawCropMarks(page: PDFPage, trim: Box, bleed: Bleed, o: BuildOptions) {
   for (const [x1, y1, x2, y2] of cropMarkLines(trim, bleed, o)) {
     // cor de registro (100% CMYK)
-    page.drawLine({ start: { x: x1, y: y1 }, end: { x: x2, y: y2 }, thickness: 0.25, color: cmyk(1, 1, 1, 1) });
+    page.drawLine({
+      start: { x: x1, y: y1 },
+      end: { x: x2, y: y2 },
+      thickness: 0.25,
+      color: cmyk(1, 1, 1, 1),
+    });
   }
 }
 
-export const sideLabel = (s: Side) => ({ top: "superior", right: "direita", bottom: "inferior", left: "esquerda" })[s];
+export const sideLabel = (s: Side) =>
+  ({ top: "superior", right: "direita", bottom: "inferior", left: "esquerda" })[s];
 
 /** Converte imagem raster em PDF com dimensões físicas (DPI). */
-export async function imageToPdf(bytes: Uint8Array, kind: "png" | "jpg", dpi: number): Promise<Uint8Array> {
+export async function imageToPdf(
+  bytes: Uint8Array,
+  kind: "png" | "jpg",
+  dpi: number,
+): Promise<Uint8Array> {
   const doc = await PDFDocument.create();
   const img = kind === "png" ? await doc.embedPng(bytes) : await doc.embedJpg(bytes);
-  const w = (img.width / dpi) * 72, h = (img.height / dpi) * 72;
+  const w = (img.width / dpi) * 72,
+    h = (img.height / dpi) * 72;
   const p = doc.addPage([w, h]);
   p.drawImage(img, { x: 0, y: 0, width: w, height: h });
   return doc.save();
@@ -399,26 +468,47 @@ export async function validateGeometry(bytes: Uint8Array, results: PageResult[],
   try {
     doc = await PDFDocument.load(bytes);
   } catch {
-    return { ok: false, issues: [{ index: -1, level: "error" as const, msg: "O arquivo final não pôde ser aberto." }] };
+    return {
+      ok: false,
+      issues: [{ index: -1, level: "error" as const, msg: "O arquivo final não pôde ser aberto." }],
+    };
   }
   if (doc.getPageCount() !== jobs.length)
     issues.push({ index: -1, level: "error", msg: "Número de páginas diferente do esperado." });
   doc.getPages().forEach((p, i) => {
-    const r = results[i], j = jobs[i];
+    const r = results[i],
+      j = jobs[i];
     if (!r || !j) return;
-    const trim = boxFrom(p.getTrimBox()), bleed = boxFrom(p.getBleedBox()), media = boxFrom(p.getMediaBox());
+    const trim = boxFrom(p.getTrimBox()),
+      bleed = boxFrom(p.getBleedBox()),
+      media = boxFrom(p.getMediaBox());
     if (!eq(trim.w, j.trim.w) || !eq(trim.h, j.trim.h))
-      issues.push({ index: i, level: "error", msg: "TrimBox não corresponde ao formato final de corte." });
+      issues.push({
+        index: i,
+        level: "error",
+        msg: "TrimBox não corresponde ao formato final de corte.",
+      });
     if (!r.skipped) {
       const exp = {
-        left: trim.x - bleed.x, bottom: trim.y - bleed.y,
-        right: bleed.x + bleed.w - trim.x - trim.w, top: bleed.y + bleed.h - trim.y - trim.h,
+        left: trim.x - bleed.x,
+        bottom: trim.y - bleed.y,
+        right: bleed.x + bleed.w - trim.x - trim.w,
+        top: bleed.y + bleed.h - trim.y - trim.h,
       };
       for (const s of SIDES)
         if (!eq(exp[s], mmToPt(j.bleed[s])))
-          issues.push({ index: i, level: "error", msg: `BleedBox ${sideLabel(s)} difere da sangria configurada.` });
+          issues.push({
+            index: i,
+            level: "error",
+            msg: `BleedBox ${sideLabel(s)} difere da sangria configurada.`,
+          });
     }
-    if (bleed.x < media.x - 0.5 || bleed.y < media.y - 0.5 || bleed.x + bleed.w > media.x + media.w + 0.5 || bleed.y + bleed.h > media.y + media.h + 0.5)
+    if (
+      bleed.x < media.x - 0.5 ||
+      bleed.y < media.y - 0.5 ||
+      bleed.x + bleed.w > media.x + media.w + 0.5 ||
+      bleed.y + bleed.h > media.y + media.h + 0.5
+    )
       issues.push({ index: i, level: "error", msg: "MediaBox não comporta a sangria." });
   });
   return { ok: !issues.some((x) => x.level === "error"), issues };

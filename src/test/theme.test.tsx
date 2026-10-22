@@ -1,6 +1,7 @@
 import { describe, expect, it, beforeEach } from "vitest";
-import { renderHook, act } from "@testing-library/react";
+import { renderHook, act, render, screen, fireEvent } from "@testing-library/react";
 import { useTheme } from "@/hooks/use-theme";
+import { ThemeToggle } from "@/components/ThemeToggle";
 
 describe("useTheme", () => {
   beforeEach(() => {
@@ -46,5 +47,35 @@ describe("useTheme", () => {
 
     expect(result.current.theme).toBe("dark");
     expect(result.current.isDark).toBe(true);
+  });
+
+  it("renders ThemeToggle with Claro, Escuro, and Sistema options and allows clicking Claro", () => {
+    render(<ThemeToggle />);
+
+    const claroBtn = screen.getByRole("radio", { name: /ativar modo claro/i });
+    const escuroBtn = screen.getByRole("radio", { name: /ativar modo escuro/i });
+    const sistemaBtn = screen.getByRole("radio", { name: /ativar modo sistema/i });
+
+    expect(claroBtn).toBeInTheDocument();
+    expect(escuroBtn).toBeInTheDocument();
+    expect(sistemaBtn).toBeInTheDocument();
+
+    // Initial default is dark
+    expect(escuroBtn).toHaveAttribute("aria-checked", "true");
+    expect(claroBtn).toHaveAttribute("aria-checked", "false");
+
+    // Click Claro
+    fireEvent.click(claroBtn);
+
+    expect(claroBtn).toHaveAttribute("aria-checked", "true");
+    expect(escuroBtn).toHaveAttribute("aria-checked", "false");
+    expect(document.documentElement.classList.contains("dark")).toBe(false);
+    expect(localStorage.getItem("theme")).toBe("light");
+
+    // Click Escuro back
+    fireEvent.click(escuroBtn);
+    expect(escuroBtn).toHaveAttribute("aria-checked", "true");
+    expect(document.documentElement.classList.contains("dark")).toBe(true);
+    expect(localStorage.getItem("theme")).toBe("dark");
   });
 });
